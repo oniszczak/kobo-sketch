@@ -27,16 +27,24 @@ This copies `coloursketch.koplugin` into `.adds/koreader/plugins/` and
 * Inside KOReader it's under **Tools → Colour sketch**.
 * Toolbar: the top row is 10 colours. The bottom row has **Size** (cycles
   4/8/16/32 px), **Eraser**, **Fill** (toggles flood-fill: tap an enclosed
-  area), **Undo**, **Redo**, and **Menu** (New, Open, Save, Save as new,
+  area), **Undo**, **Redo**, and **Menu** (New, Open, Save, Save as…,
   Clear, Refresh screen, Colour test, Reset palette).
 * **Hold a colour swatch** for half a second to show six shades of it: two
   lighter, the colour itself, three darker (greys for Black). Tap one, or
   slide up onto it and lift, to paint with it. The swatch keeps that shade
   until you pick another. Tap anywhere else to close the shades unchanged.
   **Menu → Reset palette** puts every swatch back to its original colour.
-* The eraser flashes the area it erased when you lift your finger. That
-  clears the faint ghost the non-flashing colour refresh would leave.
-* Drawings are saved as PNGs in `Drawings/` on the Kobo's USB drive.
+* The eraser, Undo and Redo flash the area they change, and closing a dialog
+  flashes where it was. That clears the faint ghost the non-flashing colour
+  refresh would leave.
+* **Save** asks for a name the first time, then saves over that file. **Save
+  as…** always asks.
+* Drawings are saved as PNGs in `.Drawings/` on the Kobo's USB drive. The
+  leading dot keeps them off Kobo's home screen, provided the Kobo's
+  `ExcludeSyncFolders` setting (in `.kobo/Kobo/Kobo eReader.conf`) skips
+  dot-folders, as it does on the Clara Colour this was built for. macOS Finder hides
+  dot-folders too; press Cmd+Shift+. to show them. Drawings saved in the old
+  `Drawings/` folder are moved in automatically.
 
 ## Tuning the colours
 

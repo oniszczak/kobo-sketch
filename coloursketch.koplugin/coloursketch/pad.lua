@@ -90,6 +90,7 @@ function Pad:init()
 
     self.face = Font:getFace("cfont", 16)
     self.contacts = {}  -- slot -> "pad" | "other" | "ignored"
+    self.overlays = {}  -- dialogs we showed over the pad -> true, or "full" if they cover the screen
     self:layoutToolbar()
 end
 
@@ -106,7 +107,7 @@ function Pad:onShow()
     self:disableHWDither()
     self:installTouchHook()
     if not Screen:isColorEnabled() then
-        UIManager:show(InfoMessage:new{
+        self:showOverlay(InfoMessage:new{
             text = _("Colour rendering is off in KOReader, so drawings will show in grey.\n\nTurn on Settings → Screen → Color rendering, then restart KOReader."),
         })
     end
@@ -287,14 +288,41 @@ function Pad:paintToolbar(bb)
     bb:paintRect(0, self.toolbar_y, self.W, 2, Blitbuffer.COLOR_BLACK)
 end
 
+-- Show a dialog over the pad. When it closes, paintTo flashes the area it
+-- covered (or the whole screen, if full) so it leaves no ghost.
+function Pad:showOverlay(widget, full)
+    self.overlays[widget] = full and "full" or true
+    UIManager:show(widget)
+end
+
 function Pad:paintTo(bb, x, y)
     bb:blitFrom(self.canvas.bb, x, y, 0, 0, self.canvas.w, self.canvas.h)
     self:paintToolbar(bb)
     if self.picker then self:paintShades(bb) end
-    -- Whatever UIManager refreshes over us (e.g. where a dialog was) would use
-    -- a greyscale waveform; queue a colour refresh of the whole screen, which
-    -- merges with it.
-    UIManager:setDirty(nil, "partial", nil, true)
+
+    -- UIManager refreshes where a closed dialog was with a greyscale waveform,
+    -- which leaves a ghost of it. Queue a colour refresh that merges with it:
+    -- a flash over our dialogs that just closed, else a gentle full-screen one.
+    local region, all = nil, false
+    for w, kind in pairs(self.overlays) do
+        if not UIManager:isWidgetShown(w) then
+            self.overlays[w] = nil
+            local d = w.movable and w.movable.dimen
+            if kind == "full" or not (d and d.w and d.w > 0) then
+                all = true
+            else
+                local g = Geom:new{ x = d.x, y = d.y, w = d.w, h = d.h }
+                region = region and region:combine(g) or g
+            end
+        end
+    end
+    if all then
+        UIManager:setDirty(nil, "full", nil, true)
+    elseif region then
+        UIManager:setDirty(nil, "full", region, true)
+    else
+        UIManager:setDirty(nil, "partial", nil, true)
+    end
 end
 
 -- Refresh with a Kaleido colour waveform: GLRC16, or GCC16 (flashing) if asked.
@@ -572,11 +600,11 @@ function Pad:pressCell(cell)
     elseif cell.kind == "fill" then
         self.fill_mode = not self.fill_mode
         self:refreshToolbar()
-    elseif cell.kind == "undo" then
-        self:showCanvasRect(self.canvas:undo())
-        self:afterEdit()
-    elseif cell.kind == "redo" then
-        self:showCanvasRect(self.canvas:redo())
+    elseif cell.kind == "undo" or cell.kind == "redo" then
+        -- Flash: undo/redo often turns colour back to white, which ghosts otherwise.
+        local x, y, w, h
+        if cell.kind == "undo" then x, y, w, h = self.canvas:undo() else x, y, w, h = self.canvas:redo() end
+        self:showCanvasRect(x, y, w, h, true)
         self:afterEdit()
     elseif cell.kind == "menu" then
         self:showMenu()
@@ -598,7 +626,7 @@ function Pad:showMenu()
             { item(_("New"), function() self:confirmDiscard(function() self:newDrawing() end) end),
               item(_("Open…"), function() self:confirmDiscard(function() self.actions.open(self) end) end) },
             { item(_("Save"), function() self.actions.save(self, false) end),
-              item(_("Save as new"), function() self.actions.save(self, true) end) },
+              item(_("Save as…"), function() self.actions.save(self, true) end) },
             { item(_("Clear page"), function()
                     self.canvas:clear()
                     self:showCanvasRect(0, 0, self.canvas.w, self.canvas.h, true)
@@ -620,12 +648,12 @@ function Pad:showMenu()
     }
     credit.not_focusable = true
     dialog:addWidget(credit)
-    UIManager:show(dialog)
+    self:showOverlay(dialog)
 end
 
 function Pad:confirmDiscard(fn)
     if not self.canvas.modified then return fn() end
-    UIManager:show(ConfirmBox:new{
+    self:showOverlay(ConfirmBox:new{
         text = _("Discard unsaved changes?"),
         ok_text = _("Discard"),
         ok_callback = fn,
@@ -656,11 +684,11 @@ end
 
 function Pad:requestExit()
     if not self.canvas.modified then return self:exit() end
-    UIManager:show(ConfirmBox:new{
+    self:showOverlay(ConfirmBox:new{
         text = _("Save your drawing before leaving?"),
         ok_text = _("Save"),
         ok_callback = function()
-            if self.actions.save(self, false) then self:exit() end
+            self.actions.save(self, false, function() self:exit() end)
         end,
         other_buttons = { { { text = _("Don't save"), callback = function() self:exit() end } } },
     })
@@ -720,7 +748,9 @@ function ColourTest:paintTo(bb)
 end
 
 function Pad:showColourTest()
-    UIManager:show(ColourTest:new{}, "full", nil, nil, nil, true)
+    local sheet = ColourTest:new{}
+    self.overlays[sheet] = "full"
+    UIManager:show(sheet, "full", nil, nil, nil, true)
 end
 
 return Pad

@@ -36,6 +36,12 @@ the snow protocol, so a lift arrives as `id == -1` from `BTN_TOUCH:0`).
 - **The preview and the final stroke share one geometry** (`Canvas.capsule`).
   That's how the colour refresh on lift covers every pixel the A2 preview
   touched.
+- **Ghosts.** Turning colour to white with the non-flashing GLRC16 leaves a
+  ghost, so anything that can do that (eraser, undo/redo, closing a dialog)
+  uses a GCC16 flash over just its area. Dialogs over the pad go through
+  `Pad:showOverlay`, so `paintTo` knows where to flash when one closes.
+- Drawings go in `/mnt/onboard/.Drawings`: Nickel's `ExcludeSyncFolders`
+  skips top-level dot-folders, so they don't show up as books.
 - The canvas is RGB32. The brush is not antialiased, so flood fill can use
   exact colour matching.
 

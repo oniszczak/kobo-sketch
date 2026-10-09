@@ -77,8 +77,12 @@ function UIManager:close(w)
     end
     if w.handleEvent then w:handleEvent({ name = "CloseWidget" }) end
 end
+function UIManager:isWidgetShown(w)
+    for _, e in ipairs(self._window_stack) do if e.widget == w then return true end end
+    return false
+end
 function UIManager:setDirty(w, refresh, region, dither)
-    dirty[#dirty + 1] = { widget = w, refresh = refresh, dither = dither }
+    dirty[#dirty + 1] = { widget = w, refresh = refresh, region = region, dither = dither }
 end
 function UIManager:nextTick(fn) fn() end
 -- Timers only fire when the test says so.
@@ -111,6 +115,7 @@ end
 stub("ui/widget/buttondialog", { new = function(_, o)
     o.__kind = "ButtonDialog"
     o.added = {}
+    o.movable = { dimen = { x = 30, y = 200, w = 540, h = 300 } }
     o.getAddedWidgetAvailableWidth = function() return 500 end
     o.addWidget = function(self, w) self.added[#self.added + 1] = w end
     return o
@@ -231,8 +236,13 @@ print("toolbar")
 refreshes = {}
 tap(pad, "undo")
 check(canvasRGB(pad, 150, 100) == 0xFFFFFF and screenRGB(150, 100) == 0xFFFFFF, "Undo removes the stroke")
+local undo_flash = refreshes[1]
+check(undo_flash and undo_flash.kind == "full" and undo_flash.dither and undo_flash.x <= 100
+      and undo_flash.x + undo_flash.w >= 200, "Undo flashes the area it changed, in colour")
+refreshes = {}
 tap(pad, "redo")
 check(canvasRGB(pad, 150, 100) == 0xFF0000, "Redo restores it")
+check(refreshes[1] and refreshes[1].kind == "full", "Redo flashes too")
 local before = pad.size_idx
 tap(pad, "size")
 check(pad.size_idx == before % #Palette.sizes + 1, "Size cycles the brush")
@@ -266,6 +276,21 @@ fed = 0
 check(#frame({ 0, 10, 10 }) == 1, "touches reach the dialog while it's open")
 frame({ 0, "up", 10, 10 })
 UIManager:close(top)
+dirty = {}
+pad:paintTo(Screen.bb, 0, 0)
+local d1 = dirty[#dirty]
+check(d1 and d1.refresh == "full" and d1.dither and d1.region and d1.region.x == 30 and d1.region.y == 200
+      and d1.region.w == 540 and d1.region.h == 300, "closing the menu flashes where it was, in colour")
+dirty = {}
+pad:paintTo(Screen.bb, 0, 0)
+check(dirty[1].refresh == "partial" and dirty[1].region == nil, "later repaints are gentle again")
+
+pad:showColourTest()
+local sheet = UIManager._window_stack[#UIManager._window_stack].widget
+UIManager:close(sheet)
+dirty = {}
+pad:paintTo(Screen.bb, 0, 0)
+check(dirty[1].refresh == "full" and dirty[1].region == nil, "closing a full-screen overlay flashes the whole screen")
 
 print("fill and eraser")
 frame({ 0, 400, 300 }); frame({ 0, 500, 300 }); frame({ 0, 500, 400 }); frame({ 0, 400, 400 }); frame({ 0, 400, 300 })
@@ -379,6 +404,7 @@ do
     end
     check(reset ~= nil, "Menu has Reset palette")
     UIManager:close(menu_dialog)
+    pad:paintTo(Screen.bb, 0, 0)
     refreshes = {}
     reset.callback()
     check(next(pad.shade) == nil, "Reset palette clears every chosen shade")
