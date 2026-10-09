@@ -36,6 +36,17 @@ local Screen = Device.screen
 local floor, min, max = math.floor, math.min, math.max
 
 local ERASER = #Palette.colours + 1
+local HOLD_SECONDS = 0.5   -- press a swatch this long to show its shades
+
+-- Move each channel of 0xRRGGBB a fraction t of the way towards target (0 or 255).
+local function mix(rgb, target, t)
+    local out = 0
+    for shift = 16, 0, -8 do
+        local c = floor(rgb / 2 ^ shift) % 256
+        out = out * 256 + floor(c + (target - c) * t + 0.5)
+    end
+    return out
+end
 
 local Pad = InputContainer:extend{
     name = "coloursketch_pad",
@@ -71,6 +82,8 @@ function Pad:init()
     end
     self.size_idx = s.size or Palette.default_size
     if not Palette.sizes[self.size_idx] then self.size_idx = Palette.default_size end
+    -- The shade each swatch shows, by colour name, when it isn't the base colour.
+    self.shade = type(s.shades) == "table" and s.shades or {}
     self.fill_mode = false
 
     self.face = Font:getFace("cfont", 16)
@@ -81,7 +94,7 @@ end
 function Pad:saveSettings()
     if G_reader_settings then
         local colour = self.colour_idx == ERASER and "Eraser" or Palette.colours[self.colour_idx].name
-        G_reader_settings:saveSetting("coloursketch", { colour = colour, size = self.size_idx })
+        G_reader_settings:saveSetting("coloursketch", { colour = colour, size = self.size_idx, shades = self.shade })
     end
 end
 
@@ -98,6 +111,7 @@ function Pad:onShow()
 end
 
 function Pad:onCloseWidget()
+    self:cancelHold()
     self:removeTouchHook()
     self:restoreHWDither()
     self:saveSettings()
@@ -198,9 +212,27 @@ function Pad:radius()
     return Palette.sizes[self.size_idx] / 2
 end
 
+-- The colour a swatch currently stands for: its base colour, or the shade picked for it.
+function Pad:swatchRGB(i)
+    local c = Palette.colours[i]
+    return self.shade[c.name] or c.rgb
+end
+
 function Pad:currentRGB()
     if self.colour_idx == ERASER then return 0xFFFFFF end
-    return Palette.colours[self.colour_idx].rgb
+    return self:swatchRGB(self.colour_idx)
+end
+
+--- Six shades of a colour, lightest first: two lighter, the colour itself,
+-- three darker. Near-black colours can't get darker, so they get greys instead.
+function Pad.shadesOf(rgb)
+    local hi = max(floor(rgb / 65536) % 256, floor(rgb / 256) % 256, rgb % 256)
+    if hi < 0x40 then
+        return { mix(rgb, 255, 0.75), mix(rgb, 255, 0.6), mix(rgb, 255, 0.45),
+                 mix(rgb, 255, 0.3), mix(rgb, 255, 0.15), rgb }
+    end
+    return { mix(rgb, 255, 0.6), mix(rgb, 255, 0.3), rgb,
+             mix(rgb, 0, 0.25), mix(rgb, 0, 0.45), mix(rgb, 0, 0.6) }
 end
 
 local function drawText(bb, text, face, x, y, w, h, fg)
@@ -221,7 +253,7 @@ function Pad:paintCell(bb, c)
             bb:paintBorder(x + inset, y + inset, w - 2 * inset, h - 2 * inset, 2, black)
             drawText(bb, _("Eraser"), self.face, x, y, w, h)
         else
-            bb:paintRectRGB32(x + inset, y + inset, w - 2 * inset, h - 2 * inset, Canvas.rgb32(Palette.colours[c.arg].rgb))
+            bb:paintRectRGB32(x + inset, y + inset, w - 2 * inset, h - 2 * inset, Canvas.rgb32(self:swatchRGB(c.arg)))
         end
         if selected then
             bb:paintBorder(x + 3, y + 3, w - 6, h - 6, inset - 6, black)
@@ -256,6 +288,7 @@ end
 function Pad:paintTo(bb, x, y)
     bb:blitFrom(self.canvas.bb, x, y, 0, 0, self.canvas.w, self.canvas.h)
     self:paintToolbar(bb)
+    if self.picker then self:paintShades(bb) end
     -- Whatever UIManager refreshes over us (e.g. where a dialog was) would use
     -- a greyscale waveform; queue a colour refresh of the whole screen, which
     -- merges with it.
@@ -324,6 +357,12 @@ function Pad:onTouchFrame(tevs)
 end
 
 function Pad:touchDown(x, y)
+    if self.picker then
+        -- While the shades are showing, a touch either picks one or dismisses them.
+        local i = self:shadeAt(x, y)
+        self.press = { kind = i and "shade" or "dismiss", shade = i }
+        return
+    end
     if y < self.toolbar_y then
         if self.fill_mode then
             self.press = { kind = "fill", x = x, y = y }
@@ -332,12 +371,19 @@ function Pad:touchDown(x, y)
             self:previewSegment(x, y, x, y)
         end
     else
-        self.press = { kind = "button", cell = self:cellAt(x, y) }
+        local cell = self:cellAt(x, y)
+        self.press = { kind = "button", cell = cell }
+        if cell and cell.kind == "colour" and cell.arg ~= ERASER then
+            self:startHold(cell)
+        end
     end
 end
 
 function Pad:touchMove(x, y)
     local p = self.press
+    if p and p.kind == "button" and not p.held and self:cellAt(x, y) ~= p.cell then
+        self:cancelHold()   -- slid off the swatch before the hold completed
+    end
     if not p or p.kind ~= "stroke" then return end
     local pts = p.points
     local lx, ly = pts[#pts - 1], pts[#pts]
@@ -349,22 +395,37 @@ end
 function Pad:touchUp(x, y)
     local p = self.press
     self.press = nil
+    self:cancelHold()
     if not p then return end
+    -- Turning pixels white leaves a ghost with the non-flashing colour
+    -- waveform, so the eraser's result is shown with a (local) flash.
+    local erasing = self.colour_idx == ERASER
     if p.kind == "stroke" then
         self:flushPreview()
-        self:showCanvasRect(self.canvas:stroke(p.points, p.r, self:currentRGB()))
+        local rx, ry, rw, rh = self.canvas:stroke(p.points, p.r, self:currentRGB())
+        self:showCanvasRect(rx, ry, rw, rh, erasing)
         self:afterEdit()
     elseif p.kind == "fill" then
         if y < self.toolbar_y then
             local rx, ry, rw, rh = self.canvas:floodFill(floor(x), floor(y), self:currentRGB())
             if rx then
-                self:showCanvasRect(rx, ry, rw, rh)
+                self:showCanvasRect(rx, ry, rw, rh, erasing)
                 self:afterEdit()
             end
         end
+    elseif p.kind == "shade" then
+        if self:shadeAt(x, y) == p.shade then self:pickShade(p.shade) end
+    elseif p.kind == "dismiss" then
+        self:closeShades()
     elseif p.kind == "button" then
-        local cell = self:cellAt(x, y)
-        if cell and cell == p.cell then self:pressCell(cell) end
+        if p.held then
+            -- The hold opened the shades; lifting on one (after sliding up) picks it.
+            local i = self.picker and self:shadeAt(x, y)
+            if i then self:pickShade(i) end
+        else
+            local cell = self:cellAt(x, y)
+            if cell and cell == p.cell then self:pressCell(cell) end
+        end
     end
 end
 
@@ -407,6 +468,94 @@ function Pad:afterEdit()
         self._could_undo, self._could_redo = undo, redo
         self:refreshToolbar()
     end
+end
+
+-- shades -----------------------------------------------------------------
+
+-- Raw touches have no hold event, so a timer opens the shades if the finger
+-- is still on the same swatch when it fires.
+function Pad:startHold(cell)
+    self:cancelHold()
+    local press = self.press
+    self._hold = function()
+        self._hold = nil
+        if self.press ~= press or not self:isOnTop() then return end
+        local ok, err = pcall(self.openShades, self, cell)
+        if ok then
+            press.held = true
+        else
+            logger.err("coloursketch: opening shades failed:", err)
+        end
+    end
+    UIManager:scheduleIn(HOLD_SECONDS, self._hold)
+end
+
+function Pad:cancelHold()
+    if self._hold then
+        UIManager:unschedule(self._hold)
+        self._hold = nil
+    end
+end
+
+-- A column of shade boxes above the held swatch, over the canvas.
+function Pad:openShades(cell)
+    local shades = Pad.shadesOf(Palette.colours[cell.arg].rgb)
+    local n = #shades
+    local w = min(self.W, floor(cell.w * 1.5))
+    local x = max(0, min(self.W - w, cell.x + floor((cell.w - w) / 2)))
+    local box = min(self.row_h, floor((self.toolbar_y - 8) / n))
+    local h = box * n
+    self.picker = { base = cell.arg, shades = shades, x = x, y = self.toolbar_y - h - 8, w = w, h = h, box = box }
+    self:paintShades(Screen.bb)
+    local pk = self.picker
+    self:colourRefresh(pk.x, pk.y, pk.w, pk.h)
+end
+
+function Pad:paintShades(bb)
+    local pk = self.picker
+    local black = Blitbuffer.COLOR_BLACK
+    bb:paintRect(pk.x, pk.y, pk.w, pk.h, Blitbuffer.COLOR_WHITE)
+    local current = self:swatchRGB(pk.base)
+    local inset = floor(pk.box * 0.1)
+    for i, rgb in ipairs(pk.shades) do
+        local by = pk.y + (i - 1) * pk.box
+        bb:paintRectRGB32(pk.x + inset, by + inset, pk.w - 2 * inset, pk.box - 2 * inset, Canvas.rgb32(rgb))
+        if rgb == current then
+            bb:paintBorder(pk.x + 2, by + 2, pk.w - 4, pk.box - 4, inset - 3, black)
+        end
+    end
+    bb:paintBorder(pk.x, pk.y, pk.w, pk.h, 2, black)
+end
+
+function Pad:shadeAt(x, y)
+    local pk = self.picker
+    if not pk or x < pk.x or x >= pk.x + pk.w or y < pk.y or y >= pk.y + pk.h then return nil end
+    return floor((y - pk.y) / pk.box) + 1
+end
+
+-- Put the canvas back where the shades were. Flash, as the boxes were solid colour.
+function Pad:closeShades()
+    local pk = self.picker
+    if not pk then return end
+    self.picker = nil
+    self:showCanvasRect(pk.x, pk.y, pk.w, pk.h, true)
+end
+
+function Pad:pickShade(i)
+    local pk = self.picker
+    local base = Palette.colours[pk.base]
+    local rgb = pk.shades[i]
+    self.shade[base.name] = rgb ~= base.rgb and rgb or nil
+    self.colour_idx = pk.base
+    self:closeShades()
+    self:refreshToolbar()
+end
+
+-- Every swatch back to its base colour from palette.lua.
+function Pad:resetPalette()
+    self.shade = {}
+    self:refreshToolbar()
+    UIManager:show(Notification:new{ text = _("Palette reset") })
 end
 
 -- toolbar ----------------------------------------------------------------
@@ -455,7 +604,8 @@ function Pad:showMenu()
                 end),
               item(_("Refresh screen"), function() self:colourRefresh(0, 0, self.W, self.H, true) end) },
             { item(_("Colour test"), function() self:showColourTest() end),
-              item(self.exit_label or _("Close"), function() self:requestExit() end) },
+              item(_("Reset palette"), function() self:resetPalette() end) },
+            { item(self.exit_label or _("Close"), function() self:requestExit() end) },
         },
     }
     UIManager:show(dialog)
