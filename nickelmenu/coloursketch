@@ -1,0 +1,1 @@
+menu_item :main :Colour Sketch :cmd_spawn :quiet:touch /tmp/coloursketch.launch && exec /mnt/onboard/.adds/koreader/koreader.sh
