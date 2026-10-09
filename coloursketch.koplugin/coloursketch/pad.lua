@@ -24,6 +24,7 @@ local GestureRange = require("ui/gesturerange")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Notification = require("ui/widget/notification")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
@@ -35,6 +36,7 @@ local Palette = require("coloursketch.palette")
 local Screen = Device.screen
 local floor, min, max = math.floor, math.min, math.max
 
+local CREDIT = "Colour Sketch © 2026 Aleks Oniszczak"
 local ERASER = #Palette.colours + 1
 local HOLD_SECONDS = 0.5   -- press a swatch this long to show its shades
 
@@ -608,6 +610,16 @@ function Pad:showMenu()
             { item(self.exit_label or _("Close"), function() self:requestExit() end) },
         },
     }
+    -- A quiet credit line under the drawing's name.
+    local credit = TextBoxWidget:new{
+        text = CREDIT,
+        face = Font:getFace("x_smallinfofont"),
+        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+        alignment = "center",
+        width = dialog:getAddedWidgetAvailableWidth(),
+    }
+    credit.not_focusable = true
+    dialog:addWidget(credit)
     UIManager:show(dialog)
 end
 
