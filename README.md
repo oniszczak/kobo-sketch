@@ -57,3 +57,8 @@ luajit tools/test_plugin.lua   # NickelMenu launch, exit, files
 
 These run against KOReader's real `Blitbuffer`, taken from the device by
 `fetch-koreader-src.sh`. The UI modules are stubbed.
+
+## Licence
+
+Copyright (C) 2026 oniszczak. Licensed under the GNU Affero General Public
+License v3.0, the same licence as KOReader. See [LICENSE](LICENSE).
