@@ -24,7 +24,6 @@ local GestureRange = require("ui/gesturerange")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Notification = require("ui/widget/notification")
-local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
@@ -636,18 +635,10 @@ function Pad:showMenu()
             { item(_("Colour test"), function() self:showColourTest() end),
               item(_("Reset palette"), function() self:resetPalette() end) },
             { item(self.exit_label or _("Close"), function() self:requestExit() end) },
+            -- A footer, not a button: disabled buttons draw grey and ignore taps.
+            { { text = CREDIT, enabled = false, font_bold = false, font_size = 16 } },
         },
     }
-    -- A quiet credit line under the drawing's name.
-    local credit = TextBoxWidget:new{
-        text = CREDIT,
-        face = Font:getFace("x_smallinfofont"),
-        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-        alignment = "center",
-        width = dialog:getAddedWidgetAvailableWidth(),
-    }
-    credit.not_focusable = true
-    dialog:addWidget(credit)
     self:showOverlay(dialog)
 end
 

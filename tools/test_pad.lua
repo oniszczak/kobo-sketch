@@ -120,7 +120,6 @@ stub("ui/widget/buttondialog", { new = function(_, o)
     o.addWidget = function(self, w) self.added[#self.added + 1] = w end
     return o
 end })
-stub("ui/widget/textboxwidget", widget("TextBoxWidget"))
 stub("ui/widget/confirmbox", widget("ConfirmBox"))
 stub("ui/widget/infomessage", widget("InfoMessage"))
 -- Like the real one, a Notification is a toast: it never blocks input.
@@ -269,8 +268,11 @@ frame({ 0, mx, my })
 local lift_gestures = frame({ 0, "up", mx, my })
 local top = UIManager._window_stack[#UIManager._window_stack].widget
 check(top.__kind == "ButtonDialog", "Menu opens the dialog")
-check(top.added[1] and top.added[1].text == "Colour Sketch © 2026 Aleks Oniszczak"
-      and top.added[1].alignment == "center", "Menu shows the credit line, centred")
+local footer = top.buttons[#top.buttons]
+check(#footer == 1 and footer[1].text == "Colour Sketch © 2026 Aleks Oniszczak"
+      and footer[1].enabled == false and footer[1].font_bold == false,
+      "the credit is a footer row of its own: grey, plain, not tappable")
+check(top.title == "Unsaved drawing" and #top.added == 0, "the title is just the drawing's name")
 check(#lift_gestures == 0 and fed == 0, "the lift that opened it isn't also a tap on the dialog")
 fed = 0
 check(#frame({ 0, 10, 10 }) == 1, "touches reach the dialog while it's open")
