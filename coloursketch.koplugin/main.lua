@@ -218,8 +218,7 @@ function ColourSketch:save(pad, as_new, done)
             },
         }},
     }
-    -- full: the keyboard covers more than the dialog's own box
-    pad:showOverlay(dialog, true)
+    pad:showOverlay(dialog)
     dialog:onShowKeyboard()
 end
 
@@ -253,7 +252,7 @@ function ColourSketch:chooseDrawing(pad)
         is_popout = false,
         close_callback = function() UIManager:close(menu) end,
     }
-    pad:showOverlay(menu, true)
+    pad:showOverlay(menu)
 end
 
 return ColourSketch

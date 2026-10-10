@@ -150,7 +150,7 @@ do
 
     p:save(pad, false, finish)
     local dlg = overlays[#overlays].w
-    check(dlg.__kind == "InputDialog" and overlays[#overlays].full, "Save on a new drawing asks for a name")
+    check(dlg.__kind == "InputDialog", "Save on a new drawing asks for a name")
     check(dlg.input:match("^Sketch %d%d%d%d%-%d%d%-%d%d %d%d%.%d%d$"), "suggesting a dated name")
     dlg.text = "   "
     button(dlg, "Save").callback()

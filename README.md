@@ -28,15 +28,15 @@ This copies `coloursketch.koplugin` into `.adds/koreader/plugins/` and
 * Toolbar: the top row is 10 colours. The bottom row has **Size** (cycles
   4/8/16/32 px), **Eraser**, **Fill** (toggles flood-fill: tap an enclosed
   area), **Undo**, **Redo**, and **Menu** (New, Open, Save, Save as…,
-  Clear, Refresh screen, Colour test, Reset palette).
+  Clear page, Reset palette, Colour test).
 * **Hold a colour swatch** for half a second to show six shades of it: two
   lighter, the colour itself, three darker (greys for Black). Tap one, or
   slide up onto it and lift, to paint with it. The swatch keeps that shade
   until you pick another. Tap anywhere else to close the shades unchanged.
   **Menu → Reset palette** puts every swatch back to its original colour.
-* The eraser, Undo and Redo flash the area they change, and closing a dialog
-  flashes where it was. That clears the faint ghost the non-flashing colour
-  refresh would leave.
+* The eraser, Undo and Redo flash the area they change, and closing any
+  dialog (Menu, Colour test, Open, Save…) flashes the whole screen. That
+  clears the faint ghost the non-flashing colour refresh would leave.
 * **Save** asks for a name the first time, then saves over that file. **Save
   as…** always asks.
 * Drawings are saved as PNGs in `.Drawings/` on the Kobo's USB drive. The

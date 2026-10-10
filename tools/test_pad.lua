@@ -42,6 +42,7 @@ local Screen = {
     refreshA2 = recorder("a2"),
     refreshPartial = recorder("partial"),
     refreshFull = recorder("full"),
+    refreshWaitForLast = function() refreshes[#refreshes + 1] = { kind = "wait" } end,
 }
 device.screen = Screen
 
@@ -277,22 +278,44 @@ check(#lift_gestures == 0 and fed == 0, "the lift that opened it isn't also a ta
 fed = 0
 check(#frame({ 0, 10, 10 }) == 1, "touches reach the dialog while it's open")
 frame({ 0, "up", 10, 10 })
+local labels = {}
+for _, row in ipairs(top.buttons) do for _, b in ipairs(row) do labels[b.text] = true end end
+check(not labels["Refresh screen"] and labels["Clear page"] and labels["Colour test"], "Menu no longer has Refresh screen")
+
+-- After a dialog closes: one full-screen colour flash, once refreshes in
+-- flight have finished, and nothing flashing in the repaint itself.
+local function checkCleanFlash(what)
+    dirty, refreshes = {}, {}
+    pad:paintTo(Screen.bb, 0, 0)
+    local queued_flash = false
+    for _, d in ipairs(dirty) do if d.refresh == "full" then queued_flash = true end end
+    local wait, flash = refreshes[1], refreshes[2]
+    check(not queued_flash and #refreshes == 2 and wait.kind == "wait" and flash.kind == "full" and flash.dither
+          and flash.x == 0 and flash.y == 0 and flash.w == W and flash.h == H,
+          what .. ": waits for refreshes in flight, then flashes the whole screen in colour")
+end
 UIManager:close(top)
-dirty = {}
+checkCleanFlash("closing the Menu")
+dirty, refreshes = {}, {}
 pad:paintTo(Screen.bb, 0, 0)
-local d1 = dirty[#dirty]
-check(d1 and d1.refresh == "full" and d1.dither and d1.region and d1.region.x == 30 and d1.region.y == 200
-      and d1.region.w == 540 and d1.region.h == 300, "closing the menu flashes where it was, in colour")
-dirty = {}
-pad:paintTo(Screen.bb, 0, 0)
-check(dirty[1].refresh == "partial" and dirty[1].region == nil, "later repaints are gentle again")
+check(dirty[1].refresh == "partial" and #refreshes == 0, "later repaints are gentle again")
 
 pad:showColourTest()
 local sheet = UIManager._window_stack[#UIManager._window_stack].widget
-UIManager:close(sheet)
-dirty = {}
+sheet:onTap()
+checkCleanFlash("closing the Colour test")
+
+-- Colour test opened from the Menu: the Menu is gone, but the flash waits
+-- until the sheet closes too.
+tap(pad, "menu")
+local menu2 = UIManager._window_stack[#UIManager._window_stack].widget
+UIManager:close(menu2)
+pad:showColourTest()
+refreshes = {}
 pad:paintTo(Screen.bb, 0, 0)
-check(dirty[1].refresh == "full" and dirty[1].region == nil, "closing a full-screen overlay flashes the whole screen")
+check(#refreshes == 0, "no flash while the Colour test is still showing")
+UIManager._window_stack[#UIManager._window_stack].widget:onTap()
+checkCleanFlash("closing the Colour test opened from the Menu")
 
 print("fill and eraser")
 frame({ 0, 400, 300 }); frame({ 0, 500, 300 }); frame({ 0, 500, 400 }); frame({ 0, 400, 400 }); frame({ 0, 400, 300 })

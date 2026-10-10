@@ -89,7 +89,7 @@ function Pad:init()
 
     self.face = Font:getFace("cfont", 16)
     self.contacts = {}  -- slot -> "pad" | "other" | "ignored"
-    self.overlays = {}  -- dialogs we showed over the pad -> true, or "full" if they cover the screen
+    self.overlays = {}  -- dialogs we showed over the pad, to clean up after when they close
     self:layoutToolbar()
 end
 
@@ -287,10 +287,10 @@ function Pad:paintToolbar(bb)
     bb:paintRect(0, self.toolbar_y, self.W, 2, Blitbuffer.COLOR_BLACK)
 end
 
--- Show a dialog over the pad. When it closes, paintTo flashes the area it
--- covered (or the whole screen, if full) so it leaves no ghost.
-function Pad:showOverlay(widget, full)
-    self.overlays[widget] = full and "full" or true
+-- Show a dialog over the pad. When it closes, paintTo arranges a full-screen
+-- flash so it leaves no ghost.
+function Pad:showOverlay(widget)
+    self.overlays[widget] = true
     UIManager:show(widget)
 end
 
@@ -299,29 +299,37 @@ function Pad:paintTo(bb, x, y)
     self:paintToolbar(bb)
     if self.picker then self:paintShades(bb) end
 
-    -- UIManager refreshes where a closed dialog was with a greyscale waveform,
-    -- which leaves a ghost of it. Queue a colour refresh that merges with it:
-    -- a flash over our dialogs that just closed, else a gentle full-screen one.
-    local region, all = nil, false
-    for w, kind in pairs(self.overlays) do
+    local closed = false
+    for w in pairs(self.overlays) do
         if not UIManager:isWidgetShown(w) then
             self.overlays[w] = nil
-            local d = w.movable and w.movable.dimen
-            if kind == "full" or not (d and d.w and d.w > 0) then
-                all = true
-            else
-                local g = Geom:new{ x = d.x, y = d.y, w = d.w, h = d.h }
-                region = region and region:combine(g) or g
-            end
+            closed = true
         end
     end
-    if all then
-        UIManager:setDirty(nil, "full", nil, true)
-    elseif region then
-        UIManager:setDirty(nil, "full", region, true)
+    if closed then
+        self:scheduleCleanRefresh()
     else
+        -- UIManager would refresh us with a greyscale waveform; queue a gentle
+        -- colour refresh of the whole screen, which merges with it.
         UIManager:setDirty(nil, "partial", nil, true)
     end
+end
+
+-- One of our dialogs closed: flash the whole screen in colour to clear its
+-- ghost. Done on the next tick, once KOReader has drawn the screen without
+-- the dialog, and only after refreshes still in progress have finished (e.g.
+-- a tapped button's highlight), as a flash that overlaps one can be lost.
+function Pad:scheduleCleanRefresh()
+    if self._clean then return end
+    self._clean = function()
+        self._clean = nil
+        -- If another dialog took over (e.g. Colour test from the Menu), the
+        -- flash happens when that one closes instead.
+        if not self:isOnTop() then return end
+        Screen:refreshWaitForLast()
+        self:colourRefresh(0, 0, self.W, self.H, true)
+    end
+    UIManager:nextTick(self._clean)
 end
 
 -- Refresh with a Kaleido colour waveform: GLRC16, or GCC16 (flashing) if asked.
@@ -626,15 +634,15 @@ function Pad:showMenu()
               item(_("Open…"), function() self:confirmDiscard(function() self.actions.open(self) end) end) },
             { item(_("Save"), function() self.actions.save(self, false) end),
               item(_("Save as…"), function() self.actions.save(self, true) end) },
+            -- Closing the Menu flashes the screen, which also shows the result
+            -- of Clear and New.
             { item(_("Clear page"), function()
                     self.canvas:clear()
-                    self:showCanvasRect(0, 0, self.canvas.w, self.canvas.h, true)
                     self:afterEdit()
                 end),
-              item(_("Refresh screen"), function() self:colourRefresh(0, 0, self.W, self.H, true) end) },
-            { item(_("Colour test"), function() self:showColourTest() end),
               item(_("Reset palette"), function() self:resetPalette() end) },
-            { item(self.exit_label or _("Close"), function() self:requestExit() end) },
+            { item(_("Colour test"), function() self:showColourTest() end),
+              item(self.exit_label or _("Close"), function() self:requestExit() end) },
             -- A footer, not a button: disabled buttons draw grey and ignore taps.
             { { text = CREDIT, enabled = false, font_bold = false, font_size = 16 } },
         },
@@ -656,7 +664,7 @@ function Pad:newDrawing()
     self.canvas = Canvas.new(self.W, self.toolbar_y)
     self.path = nil
     self:afterEdit()
-    UIManager:setDirty(self, "full")
+    UIManager:setDirty(self)   -- the closing dialog's flash shows it
 end
 
 -- Replace the canvas with a loaded image (a Blitbuffer) from path.
@@ -664,7 +672,7 @@ function Pad:loadImage(image, path)
     self.canvas:load(image)
     self.path = path
     self:afterEdit()
-    UIManager:setDirty(self, "full")
+    UIManager:setDirty(self)   -- the closing Open list's flash shows it
 end
 
 function Pad:saved(path)
@@ -705,7 +713,7 @@ function ColourTest:init()
 end
 
 function ColourTest:onTap()
-    UIManager:close(self, "full")
+    UIManager:close(self)   -- the pad flashes the screen once it's gone
     return true
 end
 
@@ -740,7 +748,7 @@ end
 
 function Pad:showColourTest()
     local sheet = ColourTest:new{}
-    self.overlays[sheet] = "full"
+    self.overlays[sheet] = true
     UIManager:show(sheet, "full", nil, nil, nil, true)
 end
 

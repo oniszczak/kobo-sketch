@@ -37,9 +37,13 @@ the snow protocol, so a lift arrives as `id == -1` from `BTN_TOUCH:0`).
   That's how the colour refresh on lift covers every pixel the A2 preview
   touched.
 - **Ghosts.** Turning colour to white with the non-flashing GLRC16 leaves a
-  ghost, so anything that can do that (eraser, undo/redo, closing a dialog)
-  uses a GCC16 flash over just its area. Dialogs over the pad go through
-  `Pad:showOverlay`, so `paintTo` knows where to flash when one closes.
+  ghost, so the eraser and undo/redo use a GCC16 flash over just their area.
+  Dialogs over the pad go through `Pad:showOverlay`; when one closes,
+  `paintTo` schedules one full-screen GCC16 flash for the *next tick*, after
+  `refreshWaitForLast()`. A region flash queued in the same repaint still
+  left the dialog's ghost on the device, most likely because it overlapped
+  refreshes in flight (e.g. the tapped button's highlight). The deferred
+  full-screen flash cleared it on the Clara Colour (confirmed 2026-10-10).
 - Drawings go in `/mnt/onboard/.Drawings`: Nickel's `ExcludeSyncFolders`
   skips top-level dot-folders, so they don't show up as books.
 - The canvas is RGB32. The brush is not antialiased, so flood fill can use
